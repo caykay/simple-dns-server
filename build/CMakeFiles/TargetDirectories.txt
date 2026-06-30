@@ -1,0 +1,3 @@
+/Users/caykay/LocalProjects/C++/lwlocaldns/build/CMakeFiles/server.dir
+/Users/caykay/LocalProjects/C++/lwlocaldns/build/CMakeFiles/edit_cache.dir
+/Users/caykay/LocalProjects/C++/lwlocaldns/build/CMakeFiles/rebuild_cache.dir
