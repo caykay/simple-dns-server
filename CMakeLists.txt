@@ -4,4 +4,9 @@ project(LightWeightDNSServer)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-add_executable(server main.cpp)
+add_executable(server)
+
+target_sources(
+  server
+  PRIVATE main.cpp server.cpp client.cpp
+  PUBLIC server.h client.h)
