@@ -8,7 +8,7 @@ namespace server
 struct dns_query_t
 {
     char q_name[256]; // domain name
-    int16_t q_type;   // DNS record type (i.e. A for ipv4 or AAAA for ipv6)
+    int16_t q_type; // DNS query record type (i.e. A for ipv4 or AAAA for ipv6)
     int16_t q_class;
 };
 
@@ -16,11 +16,11 @@ struct dns_answer_t
 {
     char q_name[256]; // can probably be optimized to a ptr of
                       // dns_query_t::q_name
-    int16_t a_type;   // DNS record type
+    int16_t a_type;   // DNS reponse record type
     int16_t a_class;
     int32_t ttl; // in seconds
-    int16_t c_name_len;
-    char c_name[256];
+    int16_t data_len;
+    char data[256];
 };
 
 /**
