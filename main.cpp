@@ -6,22 +6,14 @@
 #include <netdb.h>
 #include <thread>
 
-// server worker
-void server_worker()
-{
-    if (server::start_server() != 0)
-    {
-        printf("%s: server worker exited with code 1", __func__);
-    }
-}
-
 int main()
 {
-    std::thread server_thread(server_worker);
+    std::promise<void> on_server_init;
+    std::future<void> server_ready_signal = on_server_init.get_future();
+    std::thread s_t(server::start_server, std::move(on_server_init));
 
-    // TODO: wait until server correctly started
-    // client
-    // char server_ipstr[sizeof()] = LOOPBACK_ADDR;
+    server_ready_signal.get();
+
     addrinfo *server, hint;
     ZERO_MEM(&hint, sizeof(hint));
     hint.ai_family = AF_INET;
@@ -46,5 +38,5 @@ int main()
     printf("Client finished sending\n");
     freeaddrinfo(server);
 
-    server_thread.join();
+    s_t.join();
 }

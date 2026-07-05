@@ -13,7 +13,7 @@
 
 namespace server
 {
-int start_server()
+int start_server(std::promise<void> on_server_init)
 {
     int err;
     addrinfo hints, *result;
@@ -57,6 +57,8 @@ int start_server()
         freeaddrinfo(result);
         return 1;
     }
+
+    on_server_init.set_value(); // notify main thread
 
     {
         char ipstr[INET_ADDRSTRLEN];
