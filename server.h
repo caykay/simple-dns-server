@@ -5,19 +5,36 @@
 namespace server
 {
 
+enum class rr_type_t : int16_t // record type
+{
+    A,
+    AAAA,
+    CNAME,
+    HTTPS,
+    NS
+};
+
+enum class class_t : int16_t
+{
+    IN,
+    CH,
+    HS
+};
+
 struct dns_query_t
 {
     char q_name[256]; // domain name
-    int16_t q_type; // DNS query record type (i.e. A for ipv4 or AAAA for ipv6)
-    int16_t q_class;
+    rr_type_t
+        q_type; // DNS query record type (i.e. A for ipv4 or AAAA for ipv6)
+    class_t q_class;
 };
 
 struct dns_answer_t
 {
     char q_name[256]; // can probably be optimized to a ptr of
                       // dns_query_t::q_name
-    int16_t a_type;   // DNS reponse record type
-    int16_t a_class;
+    rr_type_t a_type; // DNS reponse record type
+    class_t a_class;
     int32_t ttl; // in seconds
     int16_t data_len;
     char data[256];

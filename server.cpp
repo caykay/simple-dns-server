@@ -11,6 +11,11 @@
 #include <netinet/in.h>
 #include <sys/socket.h>
 
+namespace
+{
+bool parse_udp_body(const char *buf, size_t len) { return false; }
+} // namespace
+
 namespace server
 {
 int start_server(std::promise<void> on_server_init)
