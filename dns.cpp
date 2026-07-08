@@ -76,9 +76,31 @@ size_t dns_answer_t::to_string(char *buf, size_t len) const
                     data);
 }
 
-bool is_valid_header(dns_header_t &hdr) { return true; }
+bool is_valid_header(dns_header_t &hdr)
+{
+    if (hdr.qdcount != 1)
+        return false;
+    // validate flags
+    // 1. check QR bit (whether or not it's a response)
+    bool is_query = (hdr.flags >> 15) == DNS_FLAGS_QR_QUERY;
+    if (is_query)
+    {
+        if ((hdr.nscount + hdr.ancount) >= 1 && hdr.arcount > 1)
+            return false;
+    }
+    else
+        return false; // server only supports the qr_query bit flag
+    // 2. validate op code (only accept queries)
+    if ((hdr.flags & DNS_FLAGS_OPCODE_MASK) != DNS_FLAGS_OPCODE_QUERY)
+    {
+        printf("%s: Invalid opcode", __func__);
+        return false;
+    }
 
-void to_network_byte_order(dns_header_t &hdr)
+    return true;
+}
+
+void to_host_byte_order(dns_header_t &hdr)
 {
     hdr.transaction_id = htons(hdr.transaction_id);
     hdr.flags = htons(hdr.flags);
@@ -88,7 +110,6 @@ void to_network_byte_order(dns_header_t &hdr)
     hdr.arcount = htons(hdr.arcount);
 }
 
-void to_network_byte_order(dns_query_t &q)
 {
     q.q_type = (rr_type_t)htons((uint16_t)q.q_type);
     q.q_class = (class_t)htons((uint16_t)q.q_class);

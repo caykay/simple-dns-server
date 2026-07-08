@@ -24,12 +24,13 @@ bool parse_dns(const char *buf, size_t len, dns::dns_payload_t *payload)
         return false;
     // parse the dns header first
     memcpy(&payload->header, buf, sizeof(payload->header));
-    dns::to_network_byte_order(payload->header);
+    dns::to_host_byte_order(payload->header);
     // TODO: testing only, this should be removed later
     char out[512];
     payload->header.to_string(out, sizeof(out));
     if (!dns::is_valid_header(payload->header))
     {
+        printf("Invalid dns payload\n");
         ZERO_MEM(payload, sizeof(dns::dns_payload_t));
         return false;
     }

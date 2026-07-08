@@ -2,6 +2,27 @@
 #include <cstdint>
 #include <cstdio>
 
+#define MAX_QUERY_COUNT 1
+#define MAX_ANS_COUNT 30
+
+#define DNS_FLAGS_QR_QUERY 0x0000
+#define DNS_FLAGS_QR_RESPONSE 0x8000
+#define DNS_FLAGS_OPCODE_QUERY 0x0000
+// mask with FLAGS_OPCODE_MASK to isolate or clear OPCODE flag bits
+// & FLAGS_OPCODE_MASK to isolate
+// | FLAGS_OPCODE_MASK to clear
+#define DNS_FLAGS_OPCODE_MASK 0x7800
+// Authoritative Answer
+#define DNS_FLAGS_AA 0x0400, // 1 = Responding server owns the zone
+// Response Codes (Mask with 0x000F to isolate)
+#define DNS_FLAGS_RCODE_MASK 0x000F
+#define DNS_FLAGS_RCODE_NOERROR 0x0000  // Success
+#define DNS_FLAGS_RCODE_FORMERR 0x0001  // Format Error
+#define DNS_FLAGS_RCODE_SERVFAIL 0x0002 // Server Failure
+#define DNS_FLAGS_RCODE_NXDOMAIN 0x0003 // Domain Name Error (Does not exist)
+#define DNS_FLAGS_RCODE_NOTIMP 0x0004   // Not Implemented
+#define DNS_FLAGS_RCODE_REFUSED 0x0005  // Query Refused
+
 namespace dns
 {
 enum class rr_type_t : uint16_t // record type (both QTYPE in query and TYPE ans
@@ -21,29 +42,6 @@ enum class class_t : uint16_t // for both QCLASS (query) and CLASS (record)
     HS = 0x0004,
     NONE = 0x00FE,
     ANY = 0x00FF
-};
-
-enum class dns_flags_t : uint16_t
-{
-    FLAGS_QR_RESPONSE = 0x8000,
-
-    FLAGS_OPCODE_QUERY = 0x0000,
-    // mask with FLAGS_OPCODE_MASK to isolate or clear OPCODE flag bits
-    // & FLAGS_OPCODE_MASK to isolate
-    // | FLAGS_OPCODE_MASK to clear
-    FLAGS_OPCODE_MASK = 0x7800,
-
-    // Authoritative Answer
-    FLAGS_AA = 0x0400, // 1 = Responding server owns the zone
-
-    // Response Codes (Mask with 0x000F to isolate)
-    FLAGS_RCODE_MASK = 0x000F,
-    FLAGS_RCODE_NOERROR = 0x0000,  // Success
-    FLAGS_RCODE_FORMERR = 0x0001,  // Format Error
-    FLAGS_RCODE_SERVFAIL = 0x0002, // Server Failure
-    FLAGS_RCODE_NXDOMAIN = 0x0003, // Domain Name Error (Does not exist)
-    FLAGS_RCODE_NOTIMP = 0x0004,   // Not Implemented
-    FLAGS_RCODE_REFUSED = 0x0005   // Query Refused
 };
 
 struct dns_query_t
@@ -90,15 +88,16 @@ struct dns_payload_t // as a udp payload
     dns_header_t header;
     /** DNS BODY **/
     dns_query_t query; // dns over udp playload is limited to 1 query per packet
-    dns_answer_t answers[30]; // assuming or expecting 16 - 24 answer range, but
-                              // it could be more than this
+    dns_answer_t
+        answers[MAX_ANS_COUNT]; // assuming or expecting 16 - 24 answer range,
+                                // but it could be more than this
     void to_string(char *buf, size_t len) const;
 };
 
-void to_network_byte_order(dns_header_t &hdr);
-void to_network_byte_order(dns_query_t &q);
-void to_network_byte_order(dns_answer_t &r);
-void to_network_byte_order(dns_payload_t &payload);
+void to_host_byte_order(dns_header_t &hdr);
+void to_host_byte_order(dns_query_t &q);
+void to_host_byte_order(dns_answer_t &r);
+void to_host_byte_order(dns_payload_t &payload);
 
 bool is_valid_header(dns_header_t &hdr);
 } // namespace dns
