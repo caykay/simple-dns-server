@@ -1,4 +1,5 @@
-#include "server.h"
+#include "udp_dns_server.h"
+#include "dns.h"
 #include "shared.h"
 
 #include <cerrno>
@@ -13,7 +14,28 @@
 
 namespace
 {
-bool parse_udp_body(const char *buf, size_t len) { return false; }
+bool parse_dns(const char *buf, size_t len, dns::dns_payload_t *payload)
+{
+    // udp payload must at least comprise the dns header size and also < 512 as
+    // per dns RFCs smallest valid dns header is 12 bytes and content header is
+    // at least 5 bytes: 2 bytes for type 2 bytes for class 1 byte for root
+    // domain name ('.')
+    if (len < 17 && len > 512)
+        return false;
+    // parse the dns header first
+    memcpy(&payload->header, buf, sizeof(payload->header));
+    dns::to_network_byte_order(payload->header);
+    // TODO: testing only, this should be removed later
+    char out[512];
+    payload->header.to_string(out, sizeof(out));
+    if (!dns::is_valid_header(payload->header))
+    {
+        ZERO_MEM(payload, sizeof(dns::dns_payload_t));
+        return false;
+    }
+    printf("dns header ->\n%s", out);
+    return true;
+}
 } // namespace
 
 namespace server
@@ -87,6 +109,8 @@ int start_server(std::promise<void> on_server_init)
             buf[returned_bytes] = '\0';
             // read byte
             printf("Data:\n%s\n", buf);
+            dns::dns_payload_t dns;
+            parse_dns(buf, returned_bytes, &dns);
         }
         else
         {

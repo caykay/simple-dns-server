@@ -1,6 +1,6 @@
 #include "client.h"
-#include "server.h"
 #include "shared.h"
+#include "udp_dns_server.h"
 
 #include <arpa/inet.h>
 #include <netdb.h>

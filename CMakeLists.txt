@@ -8,5 +8,5 @@ add_executable(server)
 
 target_sources(
   server
-  PRIVATE main.cpp server.cpp client.cpp
-  PUBLIC server.h client.h)
+  PRIVATE main.cpp udp_dns_server.cpp client.cpp dns.cpp
+  PUBLIC udp_dns_server.h client.h dns.h)
