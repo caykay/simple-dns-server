@@ -14,6 +14,35 @@
 
 namespace
 {
+/**
+ * Little endian byte conversion is not performed because:
+ * label length and ascii characters are single byte lengthed
+ * hence no network byte order swapping is needed as data fits
+ * a single byte when being sent over
+ */
+size_t read_dns_name(const char *buf, size_t len, dns::dns_query_t &query)
+{
+    size_t bytes_read = 0, bytes_written = 0, start = 0;
+    // read label length byte
+    uint8_t label_len = 0;
+    do
+    {
+        char label[LABEL_SIZE_MAX];
+        memcpy(&label_len, buf + start, sizeof(uint8_t));
+        if (label_len < 1)
+            continue; // go to "while" terminate
+        start++;      // skip the field length byte
+        memcpy(label, buf + start, label_len);
+        label[label_len] = '\0';
+        bytes_written += snprintf(&query.q_name[bytes_written],
+                                  sizeof(query.q_name) - bytes_written, "%s%s",
+                                  (bytes_written > 0 ? "." : ""), label);
+        bytes_read += label_len;
+        start += label_len;
+    } while (label_len > 0);
+    printf("name: %s\n", query.q_name);
+    return bytes_read + 1; // account for training 0x00 byte
+}
 bool parse_dns(const char *buf, size_t len, dns::dns_payload_t *payload)
 {
     // udp payload must at least comprise the dns header size and also < 512 as
@@ -35,6 +64,7 @@ bool parse_dns(const char *buf, size_t len, dns::dns_payload_t *payload)
         return false;
     }
     printf("dns header ->\n%s", out);
+    size_t query_len = read_dns_name(buf + 12, len - 12, payload->query);
     return true;
 }
 } // namespace

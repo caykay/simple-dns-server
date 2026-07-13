@@ -102,16 +102,17 @@ bool is_valid_header(dns_header_t &hdr)
 
 void to_host_byte_order(dns_header_t &hdr)
 {
-    hdr.transaction_id = htons(hdr.transaction_id);
-    hdr.flags = htons(hdr.flags);
-    hdr.qdcount = htons(hdr.qdcount);
-    hdr.ancount = htons(hdr.ancount);
-    hdr.nscount = htons(hdr.nscount);
-    hdr.arcount = htons(hdr.arcount);
+    hdr.transaction_id = ntohs(hdr.transaction_id);
+    hdr.flags = ntohs(hdr.flags);
+    hdr.qdcount = ntohs(hdr.qdcount);
+    hdr.ancount = ntohs(hdr.ancount);
+    hdr.nscount = ntohs(hdr.nscount);
+    hdr.arcount = ntohs(hdr.arcount);
 }
 
+void to_host_byte_order(dns_query_t &q)
 {
-    q.q_type = (rr_type_t)htons((uint16_t)q.q_type);
-    q.q_class = (class_t)htons((uint16_t)q.q_class);
+    q.q_type = (rr_type_t)ntohs((uint16_t)q.q_type);
+    q.q_class = (class_t)ntohs((uint16_t)q.q_class);
 }
 } // namespace dns
