@@ -14,34 +14,42 @@
 
 namespace
 {
-/**
- * Little endian byte conversion is not performed because:
- * label length and ascii characters are single byte lengthed
- * hence no network byte order swapping is needed as data fits
- * a single byte when being sent over
- */
 size_t read_dns_name(const char *buf, size_t len, dns::dns_query_t &query)
 {
-    size_t bytes_read = 0, bytes_written = 0, start = 0;
+    size_t bytes_read = 0, name_size = 0; // name_size also counts '.'
     // read label length byte
     uint8_t label_len = 0;
     do
     {
+        /**
+         * Little endian byte conversion is not performed because:
+         * label length and ascii characters are single byte lengthed
+         * hence no network byte order swapping is needed as data fits
+         * a single byte when being sent over
+         */
         char label[LABEL_SIZE_MAX];
-        memcpy(&label_len, buf + start, sizeof(uint8_t));
+        memcpy(&label_len, buf + bytes_read, sizeof(uint8_t));
         if (label_len < 1)
             continue; // go to "while" terminate
-        start++;      // skip the field length byte
-        memcpy(label, buf + start, label_len);
+        bytes_read++; // skip the field length byte
+        memcpy(label, buf + bytes_read, label_len);
         label[label_len] = '\0';
-        bytes_written += snprintf(&query.q_name[bytes_written],
-                                  sizeof(query.q_name) - bytes_written, "%s%s",
-                                  (bytes_written > 0 ? "." : ""), label);
+        name_size +=
+            snprintf(&query.q_name[name_size], sizeof(query.q_name) - name_size,
+                     "%s%s", (name_size > 0 ? "." : ""), label);
         bytes_read += label_len;
-        start += label_len;
     } while (label_len > 0);
-    printf("name: %s\n", query.q_name);
-    return bytes_read + 1; // account for training 0x00 byte
+    bytes_read++; // account for training 0x00 byte
+    // read type
+    memcpy(&query.q_type, buf + bytes_read, sizeof(query.q_type));
+    bytes_read += sizeof(query.q_type);
+    // read class
+    memcpy(&query.q_class, buf + bytes_read, sizeof(query.q_class));
+    bytes_read += sizeof(query.q_class);
+    // must convert to little endian since on mac / unix
+    query.q_type = (dns::rr_type_t)ntohs((uint16_t)query.q_type);
+    query.q_class = (dns::class_t)ntohs((uint16_t)query.q_class);
+    return bytes_read;
 }
 bool parse_dns(const char *buf, size_t len, dns::dns_payload_t *payload)
 {
@@ -56,15 +64,17 @@ bool parse_dns(const char *buf, size_t len, dns::dns_payload_t *payload)
     dns::to_host_byte_order(payload->header);
     // TODO: testing only, this should be removed later
     char out[512];
-    payload->header.to_string(out, sizeof(out));
+    size_t written = 0;
+    written = payload->header.to_string(out, sizeof(out));
     if (!dns::is_valid_header(payload->header))
     {
         printf("Invalid dns payload\n");
         ZERO_MEM(payload, sizeof(dns::dns_payload_t));
         return false;
     }
-    printf("dns header ->\n%s", out);
     size_t query_len = read_dns_name(buf + 12, len - 12, payload->query);
+    payload->query.to_string(out + written, sizeof(out) - written);
+    printf("dns payload:\n%s", out);
     return true;
 }
 } // namespace
