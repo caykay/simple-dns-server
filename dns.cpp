@@ -76,6 +76,20 @@ size_t dns_answer_t::to_string(char *buf, size_t len) const
                     data);
 }
 
+size_t dns_payload_t::to_string(char *buf, size_t len) const
+{
+    size_t bytes_written = 0;
+    bytes_written += header.to_string(buf, len);
+    bytes_written += query.to_string(buf + bytes_written, len - bytes_written);
+    const dns_answer_t *ans = answers;
+    while (ans != NULL)
+    {
+        bytes_written +=
+            ans->to_string(buf + bytes_written, len - bytes_written);
+    }
+    return bytes_written;
+}
+
 bool is_valid_header(dns_header_t &hdr)
 {
     if (hdr.qdcount != 1)

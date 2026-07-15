@@ -14,6 +14,8 @@
 #define DNS_FLAGS_OPCODE_MASK 0x7800
 // Authoritative Answer
 #define DNS_FLAGS_AA 0x0400, // 1 = Responding server owns the zone
+// DNSSEC
+#define DNS_FLAGS_AD_SET 0x0020
 // Response Codes (Mask with 0x000F to isolate)
 #define DNS_FLAGS_RCODE_MASK 0x000F
 #define DNS_FLAGS_RCODE_NOERROR 0x0000  // Success
@@ -55,8 +57,11 @@ struct dns_query_t
 
 struct dns_answer_t
 {
-    char r_name[256]; // can probably be optimized to a ptr of
-                      // dns_query_t::q_name
+    union
+    {
+        char r_name[256];   // name data tied to the answer record
+        const char *q_name; // name referencing the query name
+    };
     rr_type_t r_type; // DNS reponse record type
     class_t r_class;
     uint32_t ttl; // in seconds
@@ -91,13 +96,12 @@ struct dns_payload_t // as a udp payload
     dns_answer_t
         answers[MAX_ANS_COUNT]; // assuming or expecting 16 - 24 answer range,
                                 // but it could be more than this
-    void to_string(char *buf, size_t len) const;
+    size_t to_string(char *buf, size_t len) const;
 };
 
 void to_host_byte_order(dns_header_t &hdr);
 void to_host_byte_order(dns_query_t &q);
-void to_host_byte_order(dns_answer_t &r);
-void to_host_byte_order(dns_payload_t &payload);
+void to_network_byte_order(dns_payload_t &payload);
 
 bool is_valid_header(dns_header_t &hdr);
 } // namespace dns

@@ -14,7 +14,16 @@
 
 namespace
 {
-size_t read_dns_name(const char *buf, size_t len, dns::dns_query_t &query)
+size_t print_dns(const dns::dns_payload_t &payload)
+{
+    char out[513];
+    ZERO_MEM(out, 513);
+    size_t bytes_written = payload.to_string(out, sizeof(out));
+    printf("%s", out);
+    return bytes_written;
+}
+
+size_t parse_query_field(const char *buf, size_t len, dns::dns_query_t &query)
 {
     size_t bytes_read = 0, name_size = 0; // name_size also counts '.'
     // read label length byte
@@ -28,12 +37,12 @@ size_t read_dns_name(const char *buf, size_t len, dns::dns_query_t &query)
          * a single byte when being sent over
          */
         char label[LABEL_SIZE_MAX];
+        ZERO_MEM(label, LABEL_SIZE_MAX);
         memcpy(&label_len, buf + bytes_read, sizeof(uint8_t));
         if (label_len < 1)
             continue; // go to "while" terminate
         bytes_read++; // skip the field length byte
         memcpy(label, buf + bytes_read, label_len);
-        label[label_len] = '\0';
         name_size +=
             snprintf(&query.q_name[name_size], sizeof(query.q_name) - name_size,
                      "%s%s", (name_size > 0 ? "." : ""), label);
@@ -51,7 +60,11 @@ size_t read_dns_name(const char *buf, size_t len, dns::dns_query_t &query)
     query.q_class = (dns::class_t)ntohs((uint16_t)query.q_class);
     return bytes_read;
 }
-bool parse_dns(const char *buf, size_t len, dns::dns_payload_t *payload)
+
+/**
+ * lightweight as it only cares about the question query (QDCOUNT)
+ */
+bool parse_dns_request(const char *buf, size_t len, dns::dns_payload_t *payload)
 {
     // udp payload must at least comprise the dns header size and also < 512 as
     // per dns RFCs smallest valid dns header is 12 bytes and content header is
@@ -62,21 +75,43 @@ bool parse_dns(const char *buf, size_t len, dns::dns_payload_t *payload)
     // parse the dns header first
     memcpy(&payload->header, buf, sizeof(payload->header));
     dns::to_host_byte_order(payload->header);
-    // TODO: testing only, this should be removed later
-    char out[512];
-    size_t written = 0;
-    written = payload->header.to_string(out, sizeof(out));
     if (!dns::is_valid_header(payload->header))
     {
         printf("Invalid dns payload\n");
         ZERO_MEM(payload, sizeof(dns::dns_payload_t));
         return false;
     }
-    size_t query_len = read_dns_name(buf + 12, len - 12, payload->query);
-    payload->query.to_string(out + written, sizeof(out) - written);
-    printf("dns payload:\n%s", out);
+    parse_query_field(buf + 12, len - 12, payload->query);
+    // everything else is ignored
     return true;
 }
+
+void handle_dns_request(const dns::dns_payload_t &req, dns::dns_payload_t &res)
+{
+    // assume res is empty
+    res.header.transaction_id = req.header.transaction_id;
+    res.header.qdcount = req.header.qdcount;
+    res.header.arcount = 0;
+    res.header.ancount = 1;
+    res.header.flags =
+        DNS_FLAGS_QR_RESPONSE | DNS_FLAGS_AD_SET | DNS_FLAGS_RCODE_NOERROR;
+
+    res.query = req.query;
+
+    dns::dns_answer_t ans;
+    ans.q_name = res.query.q_name;
+    ans.r_type = dns::rr_type_t::A;
+    ans.r_class = dns::class_t::IN;
+    ans.ttl = 15 * 60; // 15 minutes
+    ans.data_len = snprintf(ans.data, sizeof(ans.data), "127.0.0.1");
+
+    memcpy(&res.answers[0], &ans, sizeof(dns::dns_answer_t));
+}
+
+/**
+ * return a network byte ordered dns payload buffer
+ */
+void build_dns_reponse(const dns::dns_payload_t &res, char *buf, size_t len) {}
 } // namespace
 
 namespace server
@@ -150,8 +185,17 @@ int start_server(std::promise<void> on_server_init)
             buf[returned_bytes] = '\0';
             // read byte
             printf("Data:\n%s\n", buf);
-            dns::dns_payload_t dns;
-            parse_dns(buf, returned_bytes, &dns);
+            dns::dns_payload_t req;
+            dns::dns_payload_t res;
+            parse_dns_request(buf, returned_bytes, &req);
+            printf("DNS request: \n");
+            print_dns(req);
+            if (dns::is_valid_header(req.header))
+            {
+                handle_dns_request(req, res);
+                printf("DNS response: \n");
+                print_dns(res);
+            }
         }
         else
         {
