@@ -4,6 +4,7 @@
 
 #define MAX_QUERY_COUNT 1
 #define MAX_ANS_COUNT 30
+#define DNS_MAX_NAME_LEN 256 // 255 bytes + 1 null-terminator
 
 #define DNS_FLAGS_QR_QUERY 0x0000
 #define DNS_FLAGS_QR_RESPONSE 0x8000
@@ -46,27 +47,38 @@ enum class class_t : uint16_t // for both QCLASS (query) and CLASS (record)
     ANY = 0x00FF
 };
 
+// Shared across query + every RR — always a domain name (or IP address)
+struct dns_name_t
+{
+    char labels[DNS_MAX_NAME_LEN]; // decompressed, dot-separated
+    uint8_t length;                // includes dot count
+    size_t to_network_bytes(void *buf, size_t len) const;
+};
+
 struct dns_query_t
 {
-    char q_name[256]; // domain name
+    dns_name_t q_name; // domain name
     rr_type_t
         q_type; // DNS query record type (i.e. A for ipv4 or AAAA for ipv6)
     class_t q_class;
+    size_t
+    copy_bytes(void *buf,
+               size_t len) const; // copy *this total bytes accounting for
+                                  // q_name (i.e. ignoring null-terminators)
     size_t to_string(char *buf, size_t len) const;
 };
 
 struct dns_answer_t
 {
-    union
-    {
-        char r_name[256];   // name data tied to the answer record
-        const char *q_name; // name referencing the query name
-    };
     rr_type_t r_type; // DNS reponse record type
     class_t r_class;
     uint32_t ttl; // in seconds
     uint16_t data_len;
-    char data[256];
+    dns_name_t data;
+    const size_t
+    copy_bytes(void *buf,
+               size_t len) const; // copy *this total bytes accounting for
+                                  // q_name (i.e. ignoring null-terminators)
     size_t to_string(char *buf, size_t len) const;
 };
 
@@ -85,6 +97,7 @@ struct dns_header_t
     uint16_t nscount;        // number of Authoritative resource records
     uint16_t
         arcount; // number of resource records in the Additional records section
+    size_t bytes_len() const;
     size_t to_string(char *buf, size_t len) const;
 };
 
@@ -101,6 +114,7 @@ struct dns_payload_t // as a udp payload
 
 void to_host_byte_order(dns_header_t &hdr);
 void to_host_byte_order(dns_query_t &q);
+void to_network_byte_order(dns_answer_t &ans);
 void to_network_byte_order(dns_payload_t &payload);
 
 bool is_valid_header(dns_header_t &hdr);

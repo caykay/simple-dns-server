@@ -25,9 +25,10 @@ size_t print_dns(const dns::dns_payload_t &payload)
 
 size_t parse_query_field(const char *buf, size_t len, dns::dns_query_t &query)
 {
-    size_t bytes_read = 0, name_size = 0; // name_size also counts '.'
+    size_t bytes_read = 0; // name_size also counts '.'
     // read label length byte
     uint8_t label_len = 0;
+    query.q_name.length = 0;
     do
     {
         /**
@@ -43,9 +44,10 @@ size_t parse_query_field(const char *buf, size_t len, dns::dns_query_t &query)
             continue; // go to "while" terminate
         bytes_read++; // skip the field length byte
         memcpy(label, buf + bytes_read, label_len);
-        name_size +=
-            snprintf(&query.q_name[name_size], sizeof(query.q_name) - name_size,
-                     "%s%s", (name_size > 0 ? "." : ""), label);
+        query.q_name.length +=
+            snprintf(&query.q_name.labels[query.q_name.length],
+                     DNS_MAX_NAME_LEN - query.q_name.length, "%s%s",
+                     (query.q_name.length > 0 ? "." : ""), label);
         bytes_read += label_len;
     } while (label_len > 0);
     bytes_read++; // account for training 0x00 byte
@@ -99,19 +101,33 @@ void handle_dns_request(const dns::dns_payload_t &req, dns::dns_payload_t &res)
     res.query = req.query;
 
     dns::dns_answer_t ans;
-    ans.q_name = res.query.q_name;
     ans.r_type = dns::rr_type_t::A;
     ans.r_class = dns::class_t::IN;
     ans.ttl = 15 * 60; // 15 minutes
-    ans.data_len = snprintf(ans.data, sizeof(ans.data), "127.0.0.1");
+    ans.data.length = snprintf(ans.data.labels, DNS_MAX_NAME_LEN, "127.0.0.1");
 
     memcpy(&res.answers[0], &ans, sizeof(dns::dns_answer_t));
 }
 
 /**
- * return a network byte ordered dns payload buffer
+ * send a dns response to clien
  */
-void build_dns_reponse(const dns::dns_payload_t &res, char *buf, size_t len) {}
+ssize_t send_dns_response(SOCKET sock, dns::dns_payload_t &res, int flags,
+                          const sockaddr_in *dest_addr, socklen_t addrlen)
+{
+    dns::to_network_byte_order(res);
+    const int max_len = 512;
+    char buf[max_len];
+    size_t index = 0, len = 0;
+    memcpy(buf + len, &res.header, sizeof(dns::dns_header_t));
+    len += sizeof(dns::dns_header_t);
+    len += res.query.copy_bytes(buf + len, max_len - len);
+    for (int i = 0; i < res.header.ancount; i++)
+    {
+        len += res.answers[i].copy_bytes(buf + len, max_len - len);
+    }
+    return sendto(sock, buf, len, flags, (sockaddr *)dest_addr, addrlen);
+}
 } // namespace
 
 namespace server
@@ -181,20 +197,25 @@ int start_server(std::promise<void> on_server_init)
                                           (sockaddr *)&client, &client_len);
         if (returned_bytes >= 0)
         {
-            printf("Received %zd bytes of data\n", returned_bytes);
+            printf("\nReceived %zd bytes of data\n", returned_bytes);
             buf[returned_bytes] = '\0';
             // read byte
-            printf("Data:\n%s\n", buf);
-            dns::dns_payload_t req;
-            dns::dns_payload_t res;
+            printf("Data:\n");
+            dns::dns_payload_t req = {0};
+            dns::dns_payload_t res = {0};
             parse_dns_request(buf, returned_bytes, &req);
             printf("DNS request: \n");
             print_dns(req);
             if (dns::is_valid_header(req.header))
             {
                 handle_dns_request(req, res);
-                printf("DNS response: \n");
+                printf("Sending DNS response: \n");
                 print_dns(res);
+                int flags = 0;
+                // send response
+                // ssize_t sent_bytes = send_dns_response(udp_socket, res,
+                // flags,
+                //                                        &client, client_len);
             }
         }
         else
