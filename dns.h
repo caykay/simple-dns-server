@@ -5,6 +5,7 @@
 #define MAX_QUERY_COUNT 1
 #define MAX_ANS_COUNT 30
 #define DNS_MAX_NAME_LEN 256 // 255 bytes + 1 null-terminator
+#define LABEL_SIZE_MAX 64    // max label buffer size (63 + 1) null terminated
 
 #define DNS_FLAGS_QR_QUERY 0x0000
 #define DNS_FLAGS_QR_RESPONSE 0x8000
@@ -50,9 +51,13 @@ enum class class_t : uint16_t // for both QCLASS (query) and CLASS (record)
 // Shared across query + every RR — always a domain name (or IP address)
 struct dns_name_t
 {
-    char labels[DNS_MAX_NAME_LEN]; // decompressed, dot-separated
-    uint8_t length;                // includes dot count
-    size_t to_network_bytes(void *buf, size_t len) const;
+    uint8_t bytes[DNS_MAX_NAME_LEN]; // decompressed, dot-separated
+    uint8_t length;                  // raw byte length
+    size_t write(const char *buf, size_t len);
+    /**
+     * converts the raw name (labels) bytes to readavke string
+     */
+    size_t to_string(char *buf, size_t len) const;
 };
 
 struct dns_query_t
@@ -73,7 +78,8 @@ struct dns_answer_t
     rr_type_t r_type; // DNS reponse record type
     class_t r_class;
     uint32_t ttl; // in seconds
-    uint16_t data_len;
+    uint16_t
+        data_len; // TODO: check if we should consider using data.length instead
     dns_name_t data;
     const size_t
     copy_bytes(void *buf,
@@ -97,7 +103,12 @@ struct dns_header_t
     uint16_t nscount;        // number of Authoritative resource records
     uint16_t
         arcount; // number of resource records in the Additional records section
-    size_t bytes_len() const;
+    /**
+     * Safely copy struct byte data into buffer i.e. to be sent over a network
+     * @note this ensures bytes are accounted for an not copying over padded
+     * space
+     */
+    size_t copy_bytes(void *buf, size_t len) const;
     size_t to_string(char *buf, size_t len) const;
 };
 
@@ -109,6 +120,7 @@ struct dns_payload_t // as a udp payload
     dns_answer_t
         answers[MAX_ANS_COUNT]; // assuming or expecting 16 - 24 answer range,
                                 // but it could be more than this
+    const size_t copy_bytes(void *buf, size_t len) const;
     size_t to_string(char *buf, size_t len) const;
 };
 

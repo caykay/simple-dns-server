@@ -1,6 +1,8 @@
 #include "dns.h"
+#include "shared.h"
 
 #include <arpa/inet.h>
+#include <cstring>
 
 #define HDR_FIELD_STR_LEN 10
 
@@ -45,6 +47,44 @@ size_t to_string(dns::class_t rrclass, char *buf, size_t len)
 
 namespace dns
 {
+size_t dns_name_t::write(const char *buf, size_t len)
+{
+    uint8_t label_len = 0;
+    memcpy(&label_len, buf, sizeof(uint8_t));
+    size_t offset = 0;
+    while (label_len > 0)
+    {
+        label_len++; // include the label len byte;
+        memcpy(bytes + offset, buf + offset, label_len);
+        offset += label_len;
+        memcpy(&label_len, buf + offset, sizeof(uint8_t));
+    }
+    bytes[offset] = 0x00;
+    length = offset + 1; // include the 0x00 trailing byte
+    return length;
+}
+
+size_t dns_name_t::to_string(char *buf, size_t len) const
+{
+    uint8_t label_len = 0;
+    memcpy(&label_len, bytes, sizeof(uint8_t));
+    size_t written = 0, offset = 0;
+    while (label_len > 0)
+    {
+        char label[LABEL_SIZE_MAX];
+        ZERO_MEM(label, LABEL_SIZE_MAX);
+        offset++; // skip label_len byte
+        memcpy(label, bytes + offset, label_len);
+        written +=
+            snprintf(buf + written, len, "%s%s", written > 0 ? "." : "", label);
+        offset += label_len;
+        memcpy(&label_len, bytes + offset, sizeof(uint8_t));
+    }
+    return written;
+}
+
+// size_t dns::dns_header_t
+
 size_t dns_header_t::to_string(char *buf, size_t len) const
 {
     static constexpr const char *fmt =
@@ -61,7 +101,10 @@ size_t dns_query_t::to_string(char *buf, size_t len) const
     char rrclass[HDR_FIELD_STR_LEN];
     ::to_string(q_type, rrtype, HDR_FIELD_STR_LEN);
     ::to_string(q_class, rrclass, HDR_FIELD_STR_LEN);
-    return snprintf(buf, len, fmt, q_name.labels, rrtype, rrclass);
+    // name
+    char name[DNS_MAX_NAME_LEN];
+    q_name.to_string(name, DNS_MAX_NAME_LEN);
+    return snprintf(buf, len, fmt, name, rrtype, rrclass);
 }
 
 size_t dns_query_t::copy_bytes(void *buf, size_t len) const
@@ -79,8 +122,10 @@ size_t dns_answer_t::to_string(char *buf, size_t len) const
     ::to_string(r_type, rrtype, HDR_FIELD_STR_LEN);
     ::to_string(r_class, rrclass, HDR_FIELD_STR_LEN);
 
-    return snprintf(buf, len, fmt, rrtype, rrclass, ttl, data.length,
-                    data.labels);
+    char name[DNS_MAX_NAME_LEN];
+    data.to_string(name, DNS_MAX_NAME_LEN);
+
+    return snprintf(buf, len, fmt, rrtype, rrclass, ttl, data.length, name);
 }
 
 size_t dns_payload_t::to_string(char *buf, size_t len) const
@@ -138,7 +183,7 @@ void to_host_byte_order(dns_query_t &q)
 
 void to_network_byte_order(dns_answer_t &ans)
 {
-    ans.= htons(ans.data_len);
+    ans.data_len = htons(ans.data_len);
     ans.r_type = (rr_type_t)htons((uint16_t)ans.r_type);
     ans.r_class = (class_t)htons((uint16_t)ans.r_class);
     ans.ttl = htons(ans.ttl);

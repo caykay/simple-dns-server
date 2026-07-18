@@ -25,32 +25,8 @@ size_t print_dns(const dns::dns_payload_t &payload)
 
 size_t parse_query_field(const char *buf, size_t len, dns::dns_query_t &query)
 {
-    size_t bytes_read = 0; // name_size also counts '.'
-    // read label length byte
-    uint8_t label_len = 0;
-    query.q_name.length = 0;
-    do
-    {
-        /**
-         * Little endian byte conversion is not performed because:
-         * label length and ascii characters are single byte lengthed
-         * hence no network byte order swapping is needed as data fits
-         * a single byte when being sent over
-         */
-        char label[LABEL_SIZE_MAX];
-        ZERO_MEM(label, LABEL_SIZE_MAX);
-        memcpy(&label_len, buf + bytes_read, sizeof(uint8_t));
-        if (label_len < 1)
-            continue; // go to "while" terminate
-        bytes_read++; // skip the field length byte
-        memcpy(label, buf + bytes_read, label_len);
-        query.q_name.length +=
-            snprintf(&query.q_name.labels[query.q_name.length],
-                     DNS_MAX_NAME_LEN - query.q_name.length, "%s%s",
-                     (query.q_name.length > 0 ? "." : ""), label);
-        bytes_read += label_len;
-    } while (label_len > 0);
-    bytes_read++; // account for training 0x00 byte
+    query.q_name.write(buf, len);
+    size_t bytes_read = query.q_name.length;
     // read type
     memcpy(&query.q_type, buf + bytes_read, sizeof(query.q_type));
     bytes_read += sizeof(query.q_type);
@@ -104,7 +80,8 @@ void handle_dns_request(const dns::dns_payload_t &req, dns::dns_payload_t &res)
     ans.r_type = dns::rr_type_t::A;
     ans.r_class = dns::class_t::IN;
     ans.ttl = 15 * 60; // 15 minutes
-    ans.data.length = snprintf(ans.data.labels, DNS_MAX_NAME_LEN, "127.0.0.1");
+    const char name[] = "31271010110";
+    ans.data.write(name, sizeof(name)); // 127.0.0.1
 
     memcpy(&res.answers[0], &ans, sizeof(dns::dns_answer_t));
 }
