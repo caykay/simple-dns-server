@@ -2,6 +2,7 @@
 #include "shared.h"
 
 #include <arpa/inet.h>
+#include <cstdint>
 #include <cstring>
 
 #define HDR_FIELD_STR_LEN 10
@@ -51,7 +52,7 @@ size_t dns_name_t::write(const char *buf, size_t len)
 {
     uint8_t label_len = 0;
     memcpy(&label_len, buf, sizeof(uint8_t));
-    size_t offset = 0;
+    uint8_t offset = 0;
     while (label_len > 0)
     {
         label_len++; // include the label len byte;
@@ -83,7 +84,13 @@ size_t dns_name_t::to_string(char *buf, size_t len) const
     return written;
 }
 
-// size_t dns::dns_header_t
+size_t dns_header_t::copy_bytes(uint8_t *buf, size_t len) const
+{
+    if (len < DNS_MAX_HEADER_LEN)
+        return 0;
+    memcpy(buf, &transaction_id, DNS_MAX_HEADER_LEN);
+    return DNS_MAX_HEADER_LEN;
+}
 
 size_t dns_header_t::to_string(char *buf, size_t len) const
 {
@@ -92,6 +99,20 @@ size_t dns_header_t::to_string(char *buf, size_t len) const
         "ANCOUNT:%hu, NSCOUNT:%hu, ARCOUNT:%hu\n";
     return snprintf(buf, len, fmt, transaction_id, flags, qdcount, ancount,
                     nscount, arcount);
+}
+
+size_t dns_query_t::copy_bytes(uint8_t *buf, size_t len) const
+{
+    if (len < (q_name.length + sizeof(uint16_t) * 2))
+        return 0;
+    size_t count = 0;
+    memcpy(buf, q_name.bytes, q_name.length);
+    count += q_name.length;
+    memcpy(buf + count, &q_class, sizeof(uint16_t));
+    count += sizeof(uint16_t);
+    memcpy(buf + count, &q_type, sizeof(uint16_t));
+    count += sizeof(uint16_t);
+    return count;
 }
 
 size_t dns_query_t::to_string(char *buf, size_t len) const
@@ -107,10 +128,17 @@ size_t dns_query_t::to_string(char *buf, size_t len) const
     return snprintf(buf, len, fmt, name, rrtype, rrclass);
 }
 
-size_t dns_query_t::copy_bytes(void *buf, size_t len) const
+size_t dns_answer_t::copy_bytes(uint8_t *buf, size_t len) const
 {
-    // parse q_name i.e. extract field  and field len
-    return 0;
+    size_t count = 0;
+    const size_t bytes_before_data = sizeof(uint16_t) * 3 + sizeof(uint32_t);
+    if (len < (bytes_before_data + data.length))
+        return 0;
+    memcpy(buf, &r_type, bytes_before_data);
+    count += bytes_before_data;
+    memcpy(buf + count, data.bytes, data.length);
+    count += data.length;
+    return count;
 }
 
 size_t dns_answer_t::to_string(char *buf, size_t len) const
@@ -126,6 +154,33 @@ size_t dns_answer_t::to_string(char *buf, size_t len) const
     data.to_string(name, DNS_MAX_NAME_LEN);
 
     return snprintf(buf, len, fmt, rrtype, rrclass, ttl, data.length, name);
+}
+
+size_t dns_payload_t::copy_bytes(uint8_t *buf, size_t len,
+                                 uint16_t ancount) const
+{
+    // guard against endian converted answer count
+    if (ancount > MAX_ANS_COUNT)
+        return 0;
+    size_t count = 0;
+    count += header.copy_bytes(buf, len);
+    count += query.copy_bytes(buf + count, len - count);
+    for (int i = 0; i < ancount; i++)
+    {
+        if (header.ancount == 1)
+        {
+            // lightweight: only write a pointer byte to question's name
+
+            // 0xc0 is ptr marker; 0x0c 12 byte offset from dns payload begin
+            // (i.e. after hader) char ptr allows us to bypass endianness (the
+            // following bytes are in network byte order)
+            char ptr[] = "0xc00c";
+            memcpy(buf + count, ptr, sizeof(uint16_t));
+            count += sizeof(uint16_t);
+            count += answers[i].copy_bytes(buf + count, len - count);
+        }
+    }
+    return count;
 }
 
 size_t dns_payload_t::to_string(char *buf, size_t len) const
@@ -189,12 +244,12 @@ void to_network_byte_order(dns_answer_t &ans)
     ans.ttl = htons(ans.ttl);
 }
 
-void to_network_byte_order(dns_payload_t &payload)
+void to_network_byte_order(dns_payload_t &payload, uint16_t ans_count)
 {
     // nthos and hton do the same thing, it's just semantic ordering
     to_host_byte_order(payload.query);
     to_host_byte_order(payload.header);
-    for (int i = 0; i < payload.header.ancount; i++)
+    for (int i = 0; i < ans_count; i++)
     {
         to_network_byte_order(payload.answers[i]);
     }

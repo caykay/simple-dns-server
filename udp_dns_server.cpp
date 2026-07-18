@@ -80,8 +80,17 @@ void handle_dns_request(const dns::dns_payload_t &req, dns::dns_payload_t &res)
     ans.r_type = dns::rr_type_t::A;
     ans.r_class = dns::class_t::IN;
     ans.ttl = 15 * 60; // 15 minutes
-    const char name[] = "31271010110";
+    const char name[] = "\x03"
+                        "127"
+                        "\x01"
+                        "0"
+                        "\x01"
+                        "0"
+                        "\x01"
+                        "1"
+                        "\x00";
     ans.data.write(name, sizeof(name)); // 127.0.0.1
+    ans.data_len = ans.data.length;
 
     memcpy(&res.answers[0], &ans, sizeof(dns::dns_answer_t));
 }
@@ -92,17 +101,10 @@ void handle_dns_request(const dns::dns_payload_t &req, dns::dns_payload_t &res)
 ssize_t send_dns_response(SOCKET sock, dns::dns_payload_t &res, int flags,
                           const sockaddr_in *dest_addr, socklen_t addrlen)
 {
-    dns::to_network_byte_order(res);
-    const int max_len = 512;
-    char buf[max_len];
-    size_t index = 0, len = 0;
-    memcpy(buf + len, &res.header, sizeof(dns::dns_header_t));
-    len += sizeof(dns::dns_header_t);
-    len += res.query.copy_bytes(buf + len, max_len - len);
-    for (int i = 0; i < res.header.ancount; i++)
-    {
-        len += res.answers[i].copy_bytes(buf + len, max_len - len);
-    }
+    uint16_t ans_count = res.header.ancount;
+    dns::to_network_byte_order(res, ans_count);
+    uint8_t buf[DNS_MAX_PAYLOAD_LEN];
+    size_t len = res.copy_bytes(buf, DNS_MAX_PAYLOAD_LEN, ans_count);
     return sendto(sock, buf, len, flags, (sockaddr *)dest_addr, addrlen);
 }
 } // namespace
@@ -115,6 +117,7 @@ int start_server(std::promise<void> on_server_init)
     addrinfo hints, *result;
     SOCKET udp_socket;
     sockaddr_in *server_addr, client_addr;
+    socklen_t client_len = sizeof(client_addr);
     ZERO_MEM(&client_addr, sizeof(client_addr));
 
     ZERO_MEM(&hints, sizeof(hints));
@@ -163,18 +166,17 @@ int start_server(std::promise<void> on_server_init)
         printf("UDP Server started at: %s:%s\n", ipstr, UDP_PORT_STR);
     }
 
-    sockaddr_in client;
-    socklen_t client_len = 0;
-
     // wait for udp packets
     while (true)
     {
         char buf[MAX_BUF + 1]; // account for null terminator
-        ssize_t returned_bytes = recvfrom(udp_socket, buf, MAX_BUF, 0,
-                                          (sockaddr *)&client, &client_len);
+        ssize_t returned_bytes = recvfrom(
+            udp_socket, buf, MAX_BUF, 0, (sockaddr *)&client_addr, &client_len);
         if (returned_bytes >= 0)
         {
-            printf("\nReceived %zd bytes of data\n", returned_bytes);
+            const char *addr = inet_ntoa(client_addr.sin_addr);
+            printf("\nReceived %zd bytes of data from %s\n", returned_bytes,
+                   addr);
             buf[returned_bytes] = '\0';
             // read byte
             printf("Data:\n");
@@ -190,9 +192,18 @@ int start_server(std::promise<void> on_server_init)
                 print_dns(res);
                 int flags = 0;
                 // send response
-                // ssize_t sent_bytes = send_dns_response(udp_socket, res,
-                // flags,
-                //                                        &client, client_len);
+                ssize_t sent_bytes = send_dns_response(
+                    udp_socket, res, flags, &client_addr, client_len);
+                if (sent_bytes >= 0)
+                {
+                    printf("successfully sent %zd bytes\n", sent_bytes);
+                }
+                else
+                {
+                    // printf("server encountered an error : %s\n",
+                    //        gai_strerror(errno));
+                    perror("server encountered an error");
+                }
             }
         }
         else
@@ -200,6 +211,9 @@ int start_server(std::promise<void> on_server_init)
             printf("server encountered an error : %s\n", gai_strerror(errno));
             break;
         }
+
+        // reset client add len for next packet read
+        client_len = sizeof(client_addr);
     }
 
     close(udp_socket);

@@ -4,8 +4,10 @@
 
 #define MAX_QUERY_COUNT 1
 #define MAX_ANS_COUNT 30
+#define DNS_MAX_PAYLOAD_LEN 512
 #define DNS_MAX_NAME_LEN 256 // 255 bytes + 1 null-terminator
 #define LABEL_SIZE_MAX 64    // max label buffer size (63 + 1) null terminated
+#define DNS_MAX_HEADER_LEN 12
 
 #define DNS_FLAGS_QR_QUERY 0x0000
 #define DNS_FLAGS_QR_RESPONSE 0x8000
@@ -29,6 +31,11 @@
 
 namespace dns
 {
+
+/**
+ * rr - resource record
+ */
+
 enum class rr_type_t : uint16_t // record type (both QTYPE in query and TYPE ans
                                 // record)
 {
@@ -67,7 +74,7 @@ struct dns_query_t
         q_type; // DNS query record type (i.e. A for ipv4 or AAAA for ipv6)
     class_t q_class;
     size_t
-    copy_bytes(void *buf,
+    copy_bytes(uint8_t *buf,
                size_t len) const; // copy *this total bytes accounting for
                                   // q_name (i.e. ignoring null-terminators)
     size_t to_string(char *buf, size_t len) const;
@@ -77,20 +84,16 @@ struct dns_answer_t
 {
     rr_type_t r_type; // DNS reponse record type
     class_t r_class;
-    uint32_t ttl; // in seconds
-    uint16_t
-        data_len; // TODO: check if we should consider using data.length instead
+    uint32_t ttl;      // in seconds
+    uint16_t data_len; // we need this here to ensure it undergoes byte order
+                       // conversions (i.e. data.length remains in OS endian)
     dns_name_t data;
-    const size_t
-    copy_bytes(void *buf,
+    size_t
+    copy_bytes(uint8_t *buf,
                size_t len) const; // copy *this total bytes accounting for
                                   // q_name (i.e. ignoring null-terminators)
     size_t to_string(char *buf, size_t len) const;
 };
-
-/**
- * rr - resource record
- */
 
 /** DNS HEADER **/
 struct dns_header_t
@@ -106,9 +109,9 @@ struct dns_header_t
     /**
      * Safely copy struct byte data into buffer i.e. to be sent over a network
      * @note this ensures bytes are accounted for an not copying over padded
-     * space
+     * space. does not perform endian byte ordering
      */
-    size_t copy_bytes(void *buf, size_t len) const;
+    size_t copy_bytes(uint8_t *buf, size_t len) const;
     size_t to_string(char *buf, size_t len) const;
 };
 
@@ -120,14 +123,18 @@ struct dns_payload_t // as a udp payload
     dns_answer_t
         answers[MAX_ANS_COUNT]; // assuming or expecting 16 - 24 answer range,
                                 // but it could be more than this
-    const size_t copy_bytes(void *buf, size_t len) const;
+    /**
+     * @note does not perform conversion to network byte order, hence why the
+     * raw os endian ancount requirement
+     */
+    size_t copy_bytes(uint8_t *buf, size_t len, uint16_t ancount) const;
     size_t to_string(char *buf, size_t len) const;
 };
 
 void to_host_byte_order(dns_header_t &hdr);
 void to_host_byte_order(dns_query_t &q);
 void to_network_byte_order(dns_answer_t &ans);
-void to_network_byte_order(dns_payload_t &payload);
+void to_network_byte_order(dns_payload_t &payload, uint16_t ans_count);
 
 bool is_valid_header(dns_header_t &hdr);
 } // namespace dns
